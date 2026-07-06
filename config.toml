@@ -1,0 +1,8 @@
+# CodexBar for Windows 設定
+
+# 更新間隔（秒）。デフォルト 300（5分）
+interval = 300
+
+# 表示するプロバイダー。
+# 選択肢: "claude", "codex", "copilot", "gemini"
+enabled = ["claude", "codex", "copilot", "gemini"]

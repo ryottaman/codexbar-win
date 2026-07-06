@@ -1,0 +1,19 @@
+# ビルド生成物
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 個人の利用データ・ローカル状態（実利用の数値が入るため公開しない）
+usage_history.json
+error.log
+startup.log
+
+# エディタ
+.vscode/
+.idea/
