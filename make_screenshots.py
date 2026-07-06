@@ -104,7 +104,7 @@ def main():
 
     for tab, path in (("概要", "docs/panel-overview.png"), ("Claude", "docs/panel-claude.png")):
         p.active_tab = tab
-        p.show(results, stats, steal_focus=False)
+        p.show(results, stats, steal_focus=False, fx_rate=155.0)  # デモ用固定レート
         w = p.win
         w.geometry("+50+50")
         for _ in range(30):

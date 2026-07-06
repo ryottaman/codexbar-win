@@ -53,6 +53,7 @@ class Panel:
         self.on_refresh = None
         self.active_tab = "概要"
         self.content: tk.Frame | None = None
+        self.fx_rate: float | None = None  # USD/JPY。None なら USD 表示
 
         self.f_title = tkfont.Font(family=FONT_FAMILY, size=11, weight="bold")
         self.f_provider = tkfont.Font(family=FONT_FAMILY, size=12, weight="bold")
@@ -63,24 +64,31 @@ class Panel:
         self.f_sub = tkfont.Font(family=FONT_FAMILY, size=8)
         self.f_big = tkfont.Font(family=FONT_FAMILY, size=15, weight="bold")
 
+    def _cost(self, usd: float) -> str:
+        """コストを円建てで整形（レート未取得時は USD）。"""
+        if self.fx_rate:
+            return f"¥{usd * self.fx_rate:,.0f}"
+        return f"${usd:,.2f}"
+
     # ---- 表示制御 ----
     def is_visible(self) -> bool:
         return bool(self.win and self.win.winfo_exists() and self.win.winfo_viewable())
 
-    def toggle(self, results, stats=None, on_refresh=None):
+    def toggle(self, results, stats=None, on_refresh=None, fx_rate=None):
         if self.is_visible():
             self.hide()
         else:
-            self.show(results, stats, on_refresh)
+            self.show(results, stats, on_refresh, fx_rate=fx_rate)
 
     def hide(self):
         if self.win and self.win.winfo_exists():
             self.win.withdraw()
 
-    def show(self, results, stats=None, on_refresh=None, steal_focus=True):
+    def show(self, results, stats=None, on_refresh=None, steal_focus=True, fx_rate=None):
         self.results = results
         self.stats = stats
         self.on_refresh = on_refresh
+        self.fx_rate = fx_rate
         # タブの有効性チェック（無効になった媒体を選んでいたら概要へ）
         valid = ["概要"] + [r.provider for r in results]
         if self.active_tab not in valid:
@@ -189,11 +197,15 @@ class Panel:
             left = tk.Frame(box, bg=BG)
             left.pack(side="left")
             tk.Label(left, text="今日の推定コスト", bg=BG, fg=SUB, font=self.f_sub).pack(anchor="w")
-            tk.Label(left, text=f"${self.stats.today_cost:,.2f}", bg=BG, fg=FG, font=self.f_big).pack(anchor="w")
+            tk.Label(left, text=self._cost(self.stats.today_cost), bg=BG, fg=FG, font=self.f_big).pack(anchor="w")
+            if self.fx_rate:
+                tk.Label(left, text=f"${self.stats.today_cost:,.2f}", bg=BG, fg=SUB, font=self.f_sub).pack(anchor="w")
             right = tk.Frame(box, bg=BG)
             right.pack(side="right")
             tk.Label(right, text="過去30日", bg=BG, fg=SUB, font=self.f_sub).pack(anchor="e")
-            tk.Label(right, text=f"${self.stats.total_cost:,.0f}", bg=BG, fg=FG, font=self.f_big).pack(anchor="e")
+            tk.Label(right, text=self._cost(self.stats.total_cost), bg=BG, fg=FG, font=self.f_big).pack(anchor="e")
+            if self.fx_rate:
+                tk.Label(right, text=f"${self.stats.total_cost:,.0f}", bg=BG, fg=SUB, font=self.f_sub).pack(anchor="e")
             tk.Label(
                 parent,
                 text=f"30日トークン {usage_stats.fmt_tokens(self.stats.total_tokens)}（Claude Code ログから推定）",
@@ -243,19 +255,24 @@ class Panel:
         for note in r.notes:
             tk.Label(parent, text=note, bg=BG, fg=SUB, font=self.f_sub).pack(anchor="w", padx=14, pady=(6, 0))
 
-        # クレジット消費額（Claude spend）
+        # クレジット消費額（Claude spend）。公式値は USD 建てなので USD を主表示。
         spend = r.extra.get("spend")
         if spend and spend.get("limit"):
             tk.Frame(parent, bg=SEP, height=1).pack(fill="x", padx=14, pady=(10, 6))
             row = tk.Frame(parent, bg=BG)
             row.pack(fill="x", padx=14)
-            cur = spend.get("currency", "USD")
             tk.Label(row, text="クレジット消費", bg=BG, fg=SUB, font=self.f_sub).pack(side="left")
             tk.Label(
                 row,
                 text=f"${spend['used']:.2f} / ${spend['limit']:.2f}",
                 bg=BG, fg=FG, font=self.f_label,
             ).pack(side="right")
+            if self.fx_rate:
+                tk.Label(
+                    parent,
+                    text=f"≈ ¥{spend['used'] * self.fx_rate:,.0f} / ¥{spend['limit'] * self.fx_rate:,.0f}",
+                    bg=BG, fg=SUB, font=self.f_sub,
+                ).pack(anchor="e", padx=14)
 
         # Claude タブは日次トークンの棒グラフ + コスト
         if r.provider == "Claude" and self.stats is not None:
@@ -265,7 +282,7 @@ class Panel:
             tk.Label(info, text="今日", bg=BG, fg=SUB, font=self.f_sub).pack(side="left")
             tk.Label(
                 info,
-                text=f"{usage_stats.fmt_tokens(self.stats.today_tokens)} / ${self.stats.today_cost:,.2f} 推定",
+                text=f"{usage_stats.fmt_tokens(self.stats.today_tokens)} / {self._cost(self.stats.today_cost)} 推定",
                 bg=BG, fg=FG, font=self.f_label,
             ).pack(side="right")
             self._chart(parent, self.stats.daily_series(14))

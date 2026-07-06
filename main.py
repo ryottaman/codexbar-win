@@ -27,6 +27,7 @@ import webbrowser
 import pystray
 from pystray import Menu, MenuItem
 
+import fx
 import history
 import iconutil
 import panel as panel_mod
@@ -71,6 +72,7 @@ class Config:
     def __init__(self) -> None:
         self.interval = DEFAULT_INTERVAL
         self.enabled = {k: True for k in PROVIDER_KEYS}
+        self.usd_jpy = 0.0  # 0 = レート自動取得。正の値で固定レート上書き
         self.load()
 
     def load(self) -> None:
@@ -86,6 +88,10 @@ class Config:
         enabled = data.get("enabled")
         if isinstance(enabled, list):
             self.enabled = {k: (k in enabled) for k in PROVIDER_KEYS}
+        try:
+            self.usd_jpy = float(data.get("usd_jpy", 0) or 0)
+        except (TypeError, ValueError):
+            self.usd_jpy = 0.0
 
     def save(self) -> None:
         lines = [
@@ -97,6 +103,9 @@ class Config:
             "# 表示するプロバイダー。",
             '# 選択肢: "claude", "codex", "copilot", "gemini"',
             "enabled = [" + ", ".join(f'"{k}"' for k in PROVIDER_KEYS if self.enabled.get(k)) + "]",
+            "",
+            "# USD/JPY レート。0 で自動取得（12時間キャッシュ）、正の値で固定。",
+            f"usd_jpy = {self.usd_jpy}",
             "",
         ]
         try:
@@ -118,6 +127,7 @@ class CodexBarApp:
         self._stats_computing = False
         self._stats_lock = threading.Lock()
         self._update_info: dict | None = None
+        self.fx_rate: float | None = self.config.usd_jpy or None
 
         # Tk（メインスレッド）。ルートは隠しておき、パネルだけ表示する。
         self.root = tk.Tk()
@@ -296,10 +306,12 @@ class CodexBarApp:
         with self.lock:
             results = list(self.results)
         if name == "toggle":
-            self.panel.toggle(results, self.stats, on_refresh=self._on_refresh)
+            self.panel.toggle(results, self.stats, on_refresh=self._on_refresh, fx_rate=self.fx_rate)
         elif name == "data":
             if self.panel.is_visible():
-                self.panel.show(results, self.stats, on_refresh=self._on_refresh, steal_focus=False)
+                self.panel.show(
+                    results, self.stats, on_refresh=self._on_refresh, steal_focus=False, fx_rate=self.fx_rate
+                )
         elif name == "quit":
             self._stop.set()
             self._wake.set()
@@ -320,10 +332,20 @@ class CodexBarApp:
             self._wake.wait(self.config.interval)
             self._wake.clear()
 
+    def _fetch_fx(self) -> None:
+        """為替レートを取得（固定指定時は何もしない）。"""
+        if self.config.usd_jpy:
+            return
+        rate = fx.get_rate()
+        if rate:
+            self.fx_rate = rate
+            self.ui_q.put(("data",))  # パネルが開いていれば円表示に更新
+
     def run(self) -> None:
         self.icon.run_detached()  # 別スレッドでトレイ常駐、ブロックしない
         threading.Thread(target=self._poll_loop, daemon=True).start()
         threading.Thread(target=self._check_update, daemon=True).start()  # 起動時に静かに確認
+        threading.Thread(target=self._fetch_fx, daemon=True).start()      # 円換算レート取得
         self.root.after(120, self._pump)
         self.root.mainloop()
 

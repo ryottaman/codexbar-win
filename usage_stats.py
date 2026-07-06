@@ -17,12 +17,14 @@ from datetime import datetime, timedelta
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 
 # モデル別価格（USD / 100万トークン）。部分一致で判定。
-# input, output, cache_read, cache_write の順。概算。
+# input, output, cache_read, cache_write の順。
+# cache_read = input の 0.1 倍、cache_write = input の 1.25 倍（5分TTL）。
+# 出典: Claude API 公式価格（2026-05 時点）。変更され得るため概算として扱う。
 PRICING = {
-    "opus": (15.0, 75.0, 1.5, 18.75),
-    "sonnet": (3.0, 15.0, 0.30, 3.75),
-    "haiku": (0.80, 4.0, 0.08, 1.0),
-    "fable": (15.0, 75.0, 1.5, 18.75),  # 不明なため Opus 相当で概算
+    "fable": (10.0, 50.0, 1.0, 12.5),   # Fable 5
+    "opus": (5.0, 25.0, 0.5, 6.25),     # Opus 4.5 以降
+    "sonnet": (3.0, 15.0, 0.30, 3.75),  # Sonnet 4.x
+    "haiku": (1.0, 5.0, 0.10, 1.25),    # Haiku 4.5
 }
 DEFAULT_PRICE = (3.0, 15.0, 0.30, 3.75)  # 不明モデルは Sonnet 相当
 

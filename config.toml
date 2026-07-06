@@ -1,8 +1,11 @@
 # CodexBar for Windows 設定
+# トレイメニューから変更するとこのファイルが自動更新される。
 
-# 更新間隔（秒）。デフォルト 300（5分）
 interval = 300
 
 # 表示するプロバイダー。
 # 選択肢: "claude", "codex", "copilot", "gemini"
 enabled = ["claude", "codex", "copilot", "gemini"]
+
+# USD/JPY レート。0 で自動取得（12時間キャッシュ）、正の値で固定。
+usd_jpy = 0.0
