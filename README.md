@@ -4,6 +4,12 @@ AI コーディングツールの利用量・上限・リセット時刻を **Wi
 
 macOS 専用アプリ [CodexBar](https://github.com/steipete/CodexBar)（by [steipete](https://github.com/steipete), MIT License）の中核ロジックを、Windows / Python 向けに再実装したものです。
 
+| 概要タブ | 媒体タブ（Claude） |
+|---|---|
+| ![概要タブ](docs/panel-overview.png) | ![Claudeタブ](docs/panel-claude.png) |
+
+（スクリーンショットの数値はデモデータです）
+
 ## 機能
 
 - **トレイアイコン**: 最も逼迫している利用枠の使用率をリングで常時表示（緑 →70%→ 黄 →90%→ 赤）
