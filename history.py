@@ -3,21 +3,40 @@
 各リフレッシュ時に (時刻, 使用率) をメーターごとに記録し、直近の単調増加区間
 （＝前回リセット以降）の傾きから「あと何分で 100%」を推定する。
 本家 CodexBar の「○分後に枯渇する見込み」に相当。追加依存なし。
+
+複数スレッドから record/eta が呼ばれ得るため、モジュールロックで排他し、
+書き込みは一時ファイル→os.replace でアトミックに行う。
 """
 from __future__ import annotations
 
 import json
 import os
-import sys
+import threading
 import time
 
-if getattr(sys, "frozen", False):
-    _BASE = os.path.dirname(sys.executable)
-else:
-    _BASE = os.path.dirname(os.path.abspath(__file__))
-HISTORY_PATH = os.path.join(_BASE, "usage_history.json")
+from paths import APP_DIR
+
+HISTORY_PATH = os.path.join(APP_DIR, "usage_history.json")
 MAX_POINTS = 60          # メーターごとの保持点数
 LOOKBACK_SEC = 24 * 3600  # 予測に使う最長遡り時間
+
+_lock = threading.Lock()
+
+
+def _valid_series(series) -> list[list[float]]:
+    """履歴エントリのうち [timestamp, percent] 形式の正常なものだけ返す。"""
+    out = []
+    if not isinstance(series, list):
+        return out
+    for p in series:
+        if (
+            isinstance(p, (list, tuple))
+            and len(p) == 2
+            and isinstance(p[0], (int, float))
+            and isinstance(p[1], (int, float))
+        ):
+            out.append([float(p[0]), float(p[1])])
+    return out
 
 
 def _load() -> dict:
@@ -25,42 +44,51 @@ def _load() -> dict:
         return {}
     try:
         with open(HISTORY_PATH, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except (OSError, ValueError):
         return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
 
 
 def _save(data: dict) -> None:
+    tmp = HISTORY_PATH + ".tmp"
     try:
-        with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f)
+        os.replace(tmp, HISTORY_PATH)
     except OSError:
-        pass
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def record(results) -> None:
     """現在の各メーターの使用率を履歴に追記する。"""
-    data = _load()
-    now = time.time()
-    for r in results:
-        if not getattr(r, "ok", False):
-            continue
-        for m in r.meters:
-            key = f"{r.provider}:{m.label}"
-            series = data.get(key, [])
-            series.append([round(now, 1), round(float(m.used_percent), 2)])
-            if len(series) > MAX_POINTS:
-                series = series[-MAX_POINTS:]
-            data[key] = series
-    _save(data)
+    with _lock:
+        data = _load()
+        now = time.time()
+        for r in results:
+            if not getattr(r, "ok", False):
+                continue
+            for m in r.meters:
+                key = f"{r.provider}:{m.label}"
+                series = _valid_series(data.get(key))
+                series.append([round(now, 1), round(float(m.used_percent), 2)])
+                if len(series) > MAX_POINTS:
+                    series = series[-MAX_POINTS:]
+                data[key] = series
+        _save(data)
 
 
 def eta_minutes(provider: str, label: str, current_percent: float) -> float | None:
     """当該メーターが 100% に到達するまでの推定分数。予測不能なら None。"""
-    data = _load()
-    key = f"{provider}:{label}"
-    series = data.get(key)
-    if not series or len(series) < 2:
+    with _lock:
+        data = _load()
+    series = _valid_series(data.get(f"{provider}:{label}"))
+    if len(series) < 2:
         return None
 
     now = time.time()

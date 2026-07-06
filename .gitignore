@@ -11,8 +11,11 @@ venv/
 
 # 個人の利用データ・ローカル状態（実利用の数値が入るため公開しない）
 usage_history.json
-error.log
-startup.log
+*.log
+
+# 環境変数ファイル（誤コミット防止）
+.env
+.env.*
 
 # エディタ
 .vscode/

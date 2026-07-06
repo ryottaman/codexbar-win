@@ -2,6 +2,6 @@
 
 __version__ = "0.1.0"
 
-# GitHub 公開後にここを実際のリポジトリへ変更する（例: "ryottaman/codexbar-win"）。
-# 未公開のうちはアップデート確認は静かに no-op になる。
+# アップデート確認の参照先。GitHub Releases にリリースを作成すると、
+# トレイメニューの「アップデート確認」が新版を検知するようになる。
 GITHUB_REPO = "ryottaman/codexbar-win"

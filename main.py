@@ -44,17 +44,25 @@ if sys.stdout is None:
 else:
     sys.stdout.reconfigure(encoding="utf-8")
 
-# 設定・履歴の保存先。exe 化時は exe と同じフォルダ、通常時はスクリプトのフォルダ。
-if getattr(sys, "frozen", False):
-    APP_DIR = os.path.dirname(sys.executable)
-else:
-    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+from paths import APP_DIR
 
 CONFIG_PATH = os.path.join(APP_DIR, "config.toml")
 DEFAULT_INTERVAL = 300  # 秒
 INTERVAL_PRESETS = [(60, "1分"), (300, "5分"), (900, "15分"), (1800, "30分")]
 PROVIDER_KEYS = [key for key, _name, _fetch in REGISTRY]
 PROVIDER_NAMES = {key: name for key, name, _fetch in REGISTRY}
+
+_ERROR_ALREADY_EXISTS = 183
+_mutex_handle = None  # プロセス生存中はミューテックスを保持し続ける
+
+
+def acquire_single_instance() -> bool:
+    """名前付きミューテックスで二重起動を防ぐ。2つ目のプロセスなら False。"""
+    global _mutex_handle
+    import ctypes
+
+    _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, "codexbar-win-instance")
+    return ctypes.windll.kernel32.GetLastError() != _ERROR_ALREADY_EXISTS
 
 
 class Config:
@@ -108,6 +116,7 @@ class CodexBarApp:
         self.ui_q: queue.Queue = queue.Queue()
         self.stats: usage_stats.DailyStats | None = None
         self._stats_computing = False
+        self._stats_lock = threading.Lock()
         self._update_info: dict | None = None
 
         # Tk（メインスレッド）。ルートは隠しておき、パネルだけ表示する。
@@ -137,19 +146,23 @@ class CodexBarApp:
                 results.append(UsageResult(name, ok=False, error=f"予期しないエラー: {e}"))
         with self.lock:
             self.results = results
-        history.record(results)          # 枯渇予測用に使用率を記録
+        try:
+            history.record(results)      # 枯渇予測用に使用率を記録
+        except Exception as e:
+            print(f"履歴記録エラー: {e}")
         self._apply_icon()
         self.ui_q.put(("data",))         # パネルが開いていれば更新
         self._maybe_compute_stats()      # コスト/トークン集計（重いので別スレッド）
 
     def _maybe_compute_stats(self, force: bool = False) -> None:
         """Claude Code ログ集計をバックグラウンドで実行しキャッシュする。"""
-        if self._stats_computing:
-            return
-        recent = self.stats and (time.time() - self.stats.computed_at < 600)
-        if recent and not force:
-            return
-        self._stats_computing = True
+        with self._stats_lock:
+            if self._stats_computing:
+                return
+            recent = self.stats and (time.time() - self.stats.computed_at < 600)
+            if recent and not force:
+                return
+            self._stats_computing = True
 
         def work():
             try:
@@ -286,7 +299,7 @@ class CodexBarApp:
             self.panel.toggle(results, self.stats, on_refresh=self._on_refresh)
         elif name == "data":
             if self.panel.is_visible():
-                self.panel.show(results, self.stats, on_refresh=self._on_refresh)
+                self.panel.show(results, self.stats, on_refresh=self._on_refresh, steal_focus=False)
         elif name == "quit":
             self._stop.set()
             self._wake.set()
@@ -299,7 +312,11 @@ class CodexBarApp:
     # ---- ポーリングループ（daemon スレッド） ----
     def _poll_loop(self) -> None:
         while not self._stop.is_set():
-            self.refresh()
+            try:
+                self.refresh()
+            except Exception as e:
+                # 想定外の例外でポーリングが恒久停止しないよう必ず継続する
+                print(f"refresh エラー: {e}")
             self._wake.wait(self.config.interval)
             self._wake.clear()
 
@@ -312,4 +329,7 @@ class CodexBarApp:
 
 
 if __name__ == "__main__":
-    CodexBarApp().run()
+    if acquire_single_instance():
+        CodexBarApp().run()
+    else:
+        print("CodexBar は既に起動しています。")

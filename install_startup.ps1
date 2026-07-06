@@ -5,9 +5,14 @@
 $ErrorActionPreference = "Stop"
 
 $appDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$pyw = Join-Path (Split-Path (Get-Command python).Source) "pythonw.exe"
-if (-not (Test-Path $pyw)) {
-    # python.exe と同階層に pythonw.exe が無い場合のフォールバック
+$pyw = $null
+$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+if ($pyCmd) {
+    $candidate = Join-Path (Split-Path $pyCmd.Source) "pythonw.exe"
+    if (Test-Path $candidate) { $pyw = $candidate }
+}
+if (-not $pyw) {
+    # python が PATH に無い場合のフォールバック（環境の pythonw に委ねる）
     $pyw = "pythonw.exe"
 }
 $target = Join-Path $appDir "run.pyw"

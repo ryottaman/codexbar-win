@@ -57,15 +57,18 @@ def _snapshot_meter(label: str, snap: dict) -> Meter | None:
         return None  # 無制限枠はメーター化しない
     used = snap.get("percent_remaining")
     # percent_remaining があれば used = 100 - remaining、無ければ entitlement/remaining から計算
-    if used is not None:
-        used_percent = 100.0 - float(used)
-    else:
-        ent = snap.get("entitlement")
-        rem = snap.get("remaining")
-        if ent and rem is not None and ent > 0:
-            used_percent = 100.0 * (ent - rem) / ent
+    try:
+        if used is not None:
+            used_percent = 100.0 - float(used)
         else:
-            return None
+            ent = snap.get("entitlement")
+            rem = snap.get("remaining")
+            if ent and rem is not None and float(ent) > 0:
+                used_percent = 100.0 * (float(ent) - float(rem)) / float(ent)
+            else:
+                return None
+    except (TypeError, ValueError):
+        return None
     return Meter(label=label, used_percent=used_percent)
 
 

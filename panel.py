@@ -77,7 +77,7 @@ class Panel:
         if self.win and self.win.winfo_exists():
             self.win.withdraw()
 
-    def show(self, results, stats=None, on_refresh=None):
+    def show(self, results, stats=None, on_refresh=None, steal_focus=True):
         self.results = results
         self.stats = stats
         self.on_refresh = on_refresh
@@ -101,12 +101,19 @@ class Panel:
         w.update_idletasks()
         self._position(w)
         w.deiconify()
-        w.focus_force()
+        if steal_focus:
+            # データ更新による再描画ではフォーカスを奪わない
+            w.focus_force()
         w.bind("<Escape>", lambda e: self.hide())
         w.bind("<FocusOut>", self._on_focus_out)
 
     def _on_focus_out(self, _e):
-        if self.win and self.win.focus_get() is None:
+        try:
+            focused = self.win.focus_get() if self.win else None
+        except KeyError:
+            # 他アプリのウィジェットにフォーカスが移ると Tk が KeyError を出すことがある
+            focused = None
+        if self.win and focused is None:
             self.hide()
 
     def _position(self, w):
@@ -147,8 +154,6 @@ class Panel:
             )
             lbl.pack(side="left")
             lbl.bind("<Button-1>", lambda e, n=name: self._select(n))
-            if on:
-                tk.Frame(tabs, bg=ACCENT, height=2)  # 下線代わりの色は fg で表現
         tk.Frame(parent, bg=SEP, height=1).pack(fill="x", pady=(2, 0))
 
         # コンテンツ
@@ -211,7 +216,8 @@ class Panel:
                 c = tk.Canvas(row, width=180, height=7, bg=BG, highlightthickness=0)
                 c.pack(side="right", padx=(0, 6))
                 _round_bar(c, 0, 0, 180, 7, TRACK)
-                _round_bar(c, 0, 0, max(7, 180 * pct / 100), 7, color_for(pct))
+                if pct > 0:
+                    _round_bar(c, 0, 0, max(7, 180 * pct / 100), 7, color_for(pct))
             else:
                 msg = "取得済" if r.ok else (r.error or "—")
                 tk.Label(row, text=msg, bg=BG, fg=SUB, font=self.f_sub).pack(side="right")
@@ -289,7 +295,8 @@ class Panel:
         c = tk.Canvas(line2, width=250, height=8, bg=BG, highlightthickness=0)
         c.pack(side="left", fill="x", expand=True)
         _round_bar(c, 0, 0, 250, 8, TRACK)
-        _round_bar(c, 0, 0, max(8, 250 * pct / 100), 8, color_for(pct))
+        if pct > 0:
+            _round_bar(c, 0, 0, max(8, 250 * pct / 100), 8, color_for(pct))
 
         # 枯渇予測
         eta = history.eta_text(provider, m.label, pct)

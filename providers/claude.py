@@ -86,10 +86,14 @@ def fetch(timeout: float = 20.0) -> UsageResult:
     for key, label in WINDOW_LABELS.items():
         win = data.get(key)
         if isinstance(win, dict) and win.get("utilization") is not None:
+            try:
+                pct = float(win["utilization"])
+            except (TypeError, ValueError):
+                continue  # 1 枠の異常値で他の枠まで消さない
             meters.append(
                 Meter(
                     label=label,
-                    used_percent=float(win["utilization"]),
+                    used_percent=pct,
                     resets_at=parse_iso8601(win.get("resets_at")),
                 )
             )

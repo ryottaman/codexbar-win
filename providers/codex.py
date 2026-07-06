@@ -67,19 +67,20 @@ def fetch(timeout: float = 20.0) -> UsageResult:
     for key, label in (("primary_window", "主枠"), ("secondary_window", "副枠")):
         win = rate.get(key)
         if isinstance(win, dict) and win.get("used_percent") is not None:
+            try:
+                pct = float(win["used_percent"])
+            except (TypeError, ValueError):
+                continue  # 1 枠の異常値で他の枠まで消さない
             resets_at = None
             reset_epoch = win.get("reset_at")
             if reset_epoch:
                 from datetime import datetime, timezone
 
-                resets_at = datetime.fromtimestamp(int(reset_epoch), tz=timezone.utc)
-            meters.append(
-                Meter(
-                    label=label,
-                    used_percent=float(win["used_percent"]),
-                    resets_at=resets_at,
-                )
-            )
+                try:
+                    resets_at = datetime.fromtimestamp(int(reset_epoch), tz=timezone.utc)
+                except (TypeError, ValueError, OSError):
+                    resets_at = None
+            meters.append(Meter(label=label, used_percent=pct, resets_at=resets_at))
 
     extra: dict = {}
     if data.get("plan_type"):

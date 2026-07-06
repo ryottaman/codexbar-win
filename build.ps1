@@ -7,7 +7,16 @@ $ErrorActionPreference = "Stop"
 $appDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $appDir
 
-$py = (Get-Command python).Source  # PATH 上の python を使用
+# PATH 上の python を使用。無ければ py ランチャーにフォールバック
+$pyCmd = Get-Command python -ErrorAction SilentlyContinue
+if ($pyCmd) {
+    $py = $pyCmd.Source
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
+    $py = "py"
+} else {
+    Write-Error "Python が見つかりません。https://www.python.org/ からインストールし、PATH に追加してください。"
+    exit 1
+}
 
 Write-Host "PyInstaller を確認中…"
 & $py -m pip install --quiet pyinstaller

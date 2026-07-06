@@ -139,11 +139,15 @@ def fetch(timeout: float = 20.0) -> UsageResult:
         left = q.get("percentLeft")
         if left is None:
             continue
+        try:
+            pct = 100.0 - float(left)
+        except (TypeError, ValueError):
+            continue  # 1 枠の異常値で他の枠まで消さない
         name = q.get("quotaId") or q.get("name") or "quota"
         meters.append(
             Meter(
                 label=str(name),
-                used_percent=100.0 - float(left),
+                used_percent=pct,
                 resets_at=parse_iso8601(q.get("resetTime")),
             )
         )

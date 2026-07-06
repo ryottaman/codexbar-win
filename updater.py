@@ -17,8 +17,9 @@ RELEASES_PAGE = "https://github.com/{repo}/releases/latest"
 
 
 def _parse(v: str) -> tuple:
-    nums = re.findall(r"\d+", v or "")
-    return tuple(int(n) for n in nums) if nums else (0,)
+    """バージョン文字列を比較用タプルに変換する。桁数を揃えて 0.1 と 0.1.0 を同値に扱う。"""
+    nums = [int(n) for n in re.findall(r"\d+", v or "")][:4]
+    return tuple(nums + [0] * (4 - len(nums)))
 
 
 def check() -> dict | None:
@@ -37,15 +38,16 @@ def check() -> dict | None:
     if r.status_code != 200:
         return None  # 未公開・リリースなし・404 など
     try:
-        tag = r.json().get("tag_name", "")
+        data = r.json()
     except ValueError:
         return None
+    tag = data.get("tag_name", "")
     if not tag:
         return None
     if _parse(tag) > _parse(__version__):
         return {
             "latest": tag,
             "current": __version__,
-            "url": r.json().get("html_url") or RELEASES_PAGE.format(repo=GITHUB_REPO),
+            "url": data.get("html_url") or RELEASES_PAGE.format(repo=GITHUB_REPO),
         }
     return None
