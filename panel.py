@@ -196,7 +196,7 @@ class Panel:
             box.pack(fill="x", padx=14, pady=(10, 4))
             left = tk.Frame(box, bg=BG)
             left.pack(side="left")
-            tk.Label(left, text="今日の推定コスト", bg=BG, fg=SUB, font=self.f_sub).pack(anchor="w")
+            tk.Label(left, text="今日の推定コスト（API換算額）", bg=BG, fg=SUB, font=self.f_sub).pack(anchor="w")
             tk.Label(left, text=self._cost(self.stats.today_cost), bg=BG, fg=FG, font=self.f_big).pack(anchor="w")
             if self.fx_rate:
                 tk.Label(left, text=f"${self.stats.today_cost:,.2f}", bg=BG, fg=SUB, font=self.f_sub).pack(anchor="w")
@@ -282,13 +282,13 @@ class Panel:
             tk.Label(info, text="今日", bg=BG, fg=SUB, font=self.f_sub).pack(side="left")
             tk.Label(
                 info,
-                text=f"{usage_stats.fmt_tokens(self.stats.today_tokens)} / {self._cost(self.stats.today_cost)} 推定",
+                text=f"{usage_stats.fmt_tokens(self.stats.today_tokens)} / {self._cost(self.stats.today_cost)} API換算",
                 bg=BG, fg=FG, font=self.f_label,
             ).pack(side="right")
             self._chart(parent, self.stats.daily_series(14))
             tk.Label(
                 parent,
-                text="※コストは公開価格からの概算です",
+                text="※API従量課金なら、の換算額です。実際の請求額ではありません",
                 bg=BG, fg=SUB, font=self.f_sub,
             ).pack(anchor="w", padx=14, pady=(4, 0))
 
