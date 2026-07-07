@@ -50,7 +50,8 @@ def _cost(usage: dict, model: str | None) -> float:
 
 class DailyStats:
     def __init__(self):
-        self.by_day: dict[str, dict] = {}  # "YYYY-MM-DD" -> {tokens, cost}
+        self.by_day: dict[str, dict] = {}   # "YYYY-MM-DD" -> {tokens, cost}
+        self.by_hour: dict[str, dict] = {}  # "YYYY-MM-DD HH" -> {tokens, cost}（直近分のみ）
         self.total_tokens = 0
         self.total_cost = 0.0
         self.today_cost = 0.0
@@ -67,29 +68,39 @@ class DailyStats:
             out.append((d, e.get("tokens", 0), e.get("cost", 0.0)))
         return out
 
+    def hourly_series(self, hours: int = 24) -> list[tuple[str, int, float]]:
+        """直近 hours 時間の (「N時」, トークン, コスト) を古い順で返す（欠損時間は0）。"""
+        now = datetime.now().astimezone().replace(minute=0, second=0, microsecond=0)
+        out = []
+        for i in range(hours - 1, -1, -1):
+            t = now - timedelta(hours=i)
+            key = f"{t.date().isoformat()} {t.hour:02d}"
+            e = self.by_hour.get(key, {})
+            out.append((f"{t.hour}時", e.get("tokens", 0), e.get("cost", 0.0)))
+        return out
 
-def _day_local(ts: str, offset_min: int) -> str | None:
-    """ISO8601 の UTC タイムスタンプをローカル日（YYYY-MM-DD）に変換する。
+
+def _day_hour_local(ts: str, offset_min: int) -> tuple[str, str] | tuple[None, None]:
+    """ISO8601 の UTC タイムスタンプをローカルの (日付, "日付 HH") に変換する。
 
     ログは行数が多いため、固定書式（YYYY-MM-DDTHH:MM...Z）前提の
     文字列スライスで高速に処理し、想定外の書式のみ fromisoformat に落とす。
     """
     try:
         y, mo, d = int(ts[0:4]), int(ts[5:7]), int(ts[8:10])
-        minutes = int(ts[11:13]) * 60 + int(ts[14:16]) + offset_min
-        day = datetime(y, mo, d).date()
-        if minutes >= 1440:
-            day += timedelta(days=1)
-        elif minutes < 0:
-            day -= timedelta(days=1)
-        return day.isoformat()
+        total_min = int(ts[11:13]) * 60 + int(ts[14:16]) + offset_min
+        # floor 除算なので負値（前日へ跨ぐ場合）も正しく処理される
+        day = (datetime(y, mo, d).date() + timedelta(days=total_min // 1440)).isoformat()
+        hour = (total_min % 1440) // 60
+        return day, f"{day} {hour:02d}"
     except (ValueError, IndexError):
         pass
     try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
     except ValueError:
-        return None
-    return dt.astimezone().date().isoformat()
+        return None, None
+    day = dt.date().isoformat()
+    return day, f"{day} {dt.hour:02d}"
 
 
 def compute(days: int = 30) -> DailyStats:
@@ -109,7 +120,10 @@ def compute(days: int = 30) -> DailyStats:
     today_date = now_local.date()
     today = today_date.isoformat()
     min_day = (today_date - timedelta(days=days - 1)).isoformat()
+    # 時間別は直近48時間ぶんだけ保持（24時間チャート＋日跨ぎの余裕）
+    hour_min_day = (today_date - timedelta(days=2)).isoformat()
     agg = defaultdict(lambda: {"tokens": 0, "cost": 0.0})
+    agg_hour = defaultdict(lambda: {"tokens": 0, "cost": 0.0})
 
     for path in glob.glob(os.path.join(PROJECTS_DIR, "**", "*.jsonl"), recursive=True):
         try:
@@ -133,7 +147,7 @@ def compute(days: int = 30) -> DailyStats:
                     ts = obj.get("timestamp")
                     if not isinstance(usage, dict) or not isinstance(ts, str):
                         continue
-                    day = _day_local(ts, offset_min)
+                    day, hour_key = _day_hour_local(ts, offset_min)
                     if day is None or day < min_day or day > today:
                         continue  # 集計範囲外（古いファイル内の残存行など）
                     tokens = (
@@ -142,12 +156,17 @@ def compute(days: int = 30) -> DailyStats:
                         + (usage.get("cache_read_input_tokens", 0) or 0)
                         + (usage.get("cache_creation_input_tokens", 0) or 0)
                     )
+                    cost = _cost(usage, msg.get("model"))
                     agg[day]["tokens"] += tokens
-                    agg[day]["cost"] += _cost(usage, msg.get("model"))
+                    agg[day]["cost"] += cost
+                    if day >= hour_min_day:
+                        agg_hour[hour_key]["tokens"] += tokens
+                        agg_hour[hour_key]["cost"] += cost
         except OSError:
             continue
 
     stats.by_day = dict(agg)
+    stats.by_hour = dict(agg_hour)
     for day, e in agg.items():
         stats.total_tokens += e["tokens"]
         stats.total_cost += e["cost"]

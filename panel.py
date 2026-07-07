@@ -52,6 +52,7 @@ class Panel:
         self.stats = None
         self.on_refresh = None
         self.active_tab = "概要"
+        self.chart_mode = "daily"  # "daily" | "hourly"
         self.content: tk.Frame | None = None
         self.fx_rate: float | None = None  # USD/JPY。None なら USD 表示
 
@@ -180,6 +181,11 @@ class Panel:
         self.win.update_idletasks()
         self._position(self.win)
 
+    def _set_chart_mode(self, mode: str):
+        if mode != self.chart_mode:
+            self.chart_mode = mode
+            self._select(self.active_tab)  # 現在タブを再描画
+
     def _render(self):
         if self.active_tab == "概要":
             self._tab_overview(self.content)
@@ -274,7 +280,7 @@ class Panel:
                     bg=BG, fg=SUB, font=self.f_sub,
                 ).pack(anchor="e", padx=14)
 
-        # Claude タブは日次トークンの棒グラフ + コスト
+        # Claude タブはトークンの棒グラフ（日別/時間別 切替）+ コスト
         if r.provider == "Claude" and self.stats is not None:
             tk.Frame(parent, bg=SEP, height=1).pack(fill="x", padx=14, pady=(10, 6))
             info = tk.Frame(parent, bg=BG)
@@ -285,7 +291,28 @@ class Panel:
                 text=f"{usage_stats.fmt_tokens(self.stats.today_tokens)} / {self._cost(self.stats.today_cost)} API換算",
                 bg=BG, fg=FG, font=self.f_label,
             ).pack(side="right")
-            self._chart(parent, self.stats.daily_series(14))
+
+            # 日別 / 時間別 の切替
+            mode_row = tk.Frame(parent, bg=BG)
+            mode_row.pack(fill="x", padx=14, pady=(6, 0))
+            for mode, label in (("daily", "日別 14日"), ("hourly", "時間別 24h")):
+                on = self.chart_mode == mode
+                lbl = tk.Label(
+                    mode_row,
+                    text=label,
+                    bg=BG,
+                    fg=(ACCENT if on else SUB),
+                    font=(self.f_tab_on if on else self.f_tab),
+                    cursor="hand2",
+                )
+                lbl.pack(side="left", padx=(0, 12))
+                lbl.bind("<Button-1>", lambda e, m=mode: self._set_chart_mode(m))
+
+            if self.chart_mode == "hourly":
+                series = self.stats.hourly_series(24)
+            else:
+                series = [(d[5:], t, c) for d, t, c in self.stats.daily_series(14)]
+            self._chart(parent, series)
             tk.Label(
                 parent,
                 text="※API従量課金なら、の換算額です。実際の請求額ではありません",
@@ -321,7 +348,7 @@ class Panel:
             tk.Label(mf, text=eta, bg=BG, fg=color_for(pct), font=self.f_sub).pack(anchor="w", pady=(2, 0))
 
     def _chart(self, parent, series):
-        # series: [(date, tokens, cost), ...] 古い順
+        # series: [(表示ラベル, tokens, cost), ...] 古い順
         H = 64
         W = WIDTH - 28
         c = tk.Canvas(parent, width=W, height=H + 14, bg=BG, highlightthickness=0)
@@ -340,6 +367,6 @@ class Panel:
             y1 = H - bh
             col = BAR_BLUE if tok > 0 else TRACK
             c.create_rectangle(x1, y1, x2, y2, fill=col, outline=col)
-        # 両端の日付
-        c.create_text(0, H + 7, text=series[0][0][5:], anchor="w", fill=SUB, font=self.f_sub)
-        c.create_text(W, H + 7, text=series[-1][0][5:], anchor="e", fill=SUB, font=self.f_sub)
+        # 両端のラベル
+        c.create_text(0, H + 7, text=series[0][0], anchor="w", fill=SUB, font=self.f_sub)
+        c.create_text(W, H + 7, text=series[-1][0], anchor="e", fill=SUB, font=self.f_sub)
