@@ -17,13 +17,31 @@ from .base import Meter, UsageResult, parse_iso8601
 CREDENTIALS_PATH = os.path.expanduser("~/.claude/.credentials.json")
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 
-# 表示したい枠のラベル対応表（存在するものだけ表示）
+# 旧形式フォールバック用のラベル対応表（limits 配列が無い場合のみ使用）
 WINDOW_LABELS = {
     "five_hour": "5時間",
     "seven_day": "7日",
     "seven_day_opus": "7日 Opus",
     "seven_day_sonnet": "7日 Sonnet",
 }
+
+# limits 配列の kind → ラベル。モデルスコープ付きはモデル名から動的生成する。
+LIMIT_KIND_LABELS = {
+    "session": "5時間",
+    "weekly_all": "7日 全モデル",
+}
+
+
+def _limit_label(lim: dict) -> str | None:
+    """limits 配列の 1 要素から表示ラベルを決める。不明な枠は None。"""
+    kind = lim.get("kind")
+    if kind in LIMIT_KIND_LABELS:
+        return LIMIT_KIND_LABELS[kind]
+    scope = lim.get("scope") or {}
+    model = (scope.get("model") or {}).get("display_name") if isinstance(scope, dict) else None
+    if kind == "weekly_scoped" and model:
+        return f"7日 {model}のみ"
+    return None
 
 
 def _load_token() -> tuple[str | None, str | None]:
@@ -82,21 +100,43 @@ def fetch(timeout: float = 20.0) -> UsageResult:
     except ValueError:
         return UsageResult("Claude", ok=False, error="レスポンス解析エラー")
 
+    # limits 配列（アプリの「使用状況」画面と同じソース）を優先して使う。
+    # 5時間 / 7日全モデル / 7日モデル別（Fable 等）がここに揃う。
     meters: list[Meter] = []
-    for key, label in WINDOW_LABELS.items():
-        win = data.get(key)
-        if isinstance(win, dict) and win.get("utilization") is not None:
-            try:
-                pct = float(win["utilization"])
-            except (TypeError, ValueError):
-                continue  # 1 枠の異常値で他の枠まで消さない
-            meters.append(
-                Meter(
-                    label=label,
-                    used_percent=pct,
-                    resets_at=parse_iso8601(win.get("resets_at")),
-                )
+    for lim in data.get("limits", []) or []:
+        if not isinstance(lim, dict) or lim.get("percent") is None:
+            continue
+        label = _limit_label(lim)
+        if label is None:
+            continue
+        try:
+            pct = float(lim["percent"])
+        except (TypeError, ValueError):
+            continue  # 1 枠の異常値で他の枠まで消さない
+        meters.append(
+            Meter(
+                label=label,
+                used_percent=pct,
+                resets_at=parse_iso8601(lim.get("resets_at")),
             )
+        )
+
+    # 旧形式フォールバック（limits が空・未提供のアカウント向け）
+    if not meters:
+        for key, label in WINDOW_LABELS.items():
+            win = data.get(key)
+            if isinstance(win, dict) and win.get("utilization") is not None:
+                try:
+                    pct = float(win["utilization"])
+                except (TypeError, ValueError):
+                    continue
+                meters.append(
+                    Meter(
+                        label=label,
+                        used_percent=pct,
+                        resets_at=parse_iso8601(win.get("resets_at")),
+                    )
+                )
 
     extra: dict = {}
     eu = data.get("extra_usage")
